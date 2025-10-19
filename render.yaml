@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: stegnography-backend
+    env: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: CLIENT_ORIGIN
+        value: https://stegnography-seven.vercel.app
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=1024
