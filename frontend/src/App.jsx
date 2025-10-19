@@ -61,7 +61,7 @@ export default function App() {
       <header className="relative z-20 h-16 border-b border-white/10 bg-white/5 backdrop-blur-md">
         <div className="h-full max-w-6xl mx-auto px-4 relative flex items-center justify-center">
           <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-white via-gray-300 to-white bg-clip-text text-transparent">
-            STEGNOGRAPHY
+            STEGANOGRAPHY
           </h1>
         </div>
       </header>
