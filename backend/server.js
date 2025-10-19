@@ -12,15 +12,51 @@ import os from "node:os";
 // --- ffmpeg for auto-conversion ---
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
-ffmpeg.setFfmpegPath(ffmpegPath);
+// On some platforms ffmpeg-static can be null; guard it.
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 const app = express();
 
+/* -------------------- CORS (Render/Vercel friendly) -------------------- */
+/**
+ * Allow one or more origins via env:
+ *  - CLIENT_ORIGIN="https://stegnography-seven.vercel.app"
+ *  - or CLIENT_ORIGINS="https://foo.com,https://bar.com"
+ */
+const ORIGINS_ENV =
+  process.env.CLIENT_ORIGIN ||
+  process.env.CLIENT_ORIGINS ||
+  "http://localhost:5173,https://stegnography-seven.vercel.app";
+
+const ALLOWED_ORIGINS = ORIGINS_ENV.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Allow non-browser requests (e.g., curl, Render health checks)
+      if (!origin) return cb(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error(`Not allowed by CORS: ${origin}`));
+    },
+  })
+);
+// Preflight
+app.options("*", cors());
+
+/* -------------------- Parsing limits -------------------- */
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
-app.use(cors({ origin: "http://localhost:5173" }));
 
-// ---------- Multer ----------
+/* -------------------- Health checks -------------------- */
+app.get("/", (_req, res) => {
+  res.type("text/plain").send("OK");
+});
+
+/* -------------------- Multer -------------------- */
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
@@ -31,11 +67,15 @@ const upload = multer({
     } else {
       cb(new Error(`Invalid file type: ${file.mimetype}. Only images and audio are allowed.`), false);
     }
-  }
+  },
 });
 
-// ---------- helpers ----------
-const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0, 0); return b; };
+/* -------------------- helpers -------------------- */
+const u32 = (n) => {
+  const b = Buffer.alloc(4);
+  b.writeUInt32BE(n >>> 0, 0);
+  return b;
+};
 const bitsNeeded = (nBytes) => nBytes * 8;
 const readU32BE = (buf) => buf.readUInt32BE(0);
 
@@ -52,7 +92,7 @@ function packPayload({ secretText, secretFile }) {
       name: secretFile.originalname || "secret",
       mime: secretFile.mimetype || "application/octet-stream",
       len: data.length,
-      data
+      data,
     });
   }
   if (items.length === 0) throw new Error("No secret data provided");
@@ -75,20 +115,24 @@ async function encryptIfNeeded(buf, password) {
   return Buffer.concat([HEAD, salt, iv, tag, u32(enc.length), enc]);
 }
 
-// ---------- Image LSB (RGBA raw, re-encode as PNG) ----------
+/* -------------------- Image LSB (RGBA raw, re-encode as PNG) -------------------- */
 function embedLSB_RGBA(rgbabuf, width, height, payload) {
   const capacityBits = width * height * 3; // RGB channels
   const needBits = bitsNeeded(payload.length);
   if (needBits > capacityBits) {
-    return { error: `Not enough capacity. Need ${Math.ceil(needBits/8/1024)}KB, have ${Math.ceil(capacityBits/8/1024)}KB.` };
+    return {
+      error: `Not enough capacity. Need ${Math.ceil(needBits / 8 / 1024)}KB, have ${Math.ceil(
+        capacityBits / 8 / 1024
+      )}KB.`,
+    };
   }
   let bitIdx = 0;
   for (let i = 0; i < payload.length; i++) {
     for (let b = 7; b >= 0; b--) {
       const bit = (payload[i] >> b) & 1;
       const pixelIndex = Math.floor(bitIdx / 3);
-      const channel = bitIdx % 3;       // 0:R 1:G 2:B
-      const base = pixelIndex * 4;      // RGBA stride
+      const channel = bitIdx % 3; // 0:R 1:G 2:B
+      const base = pixelIndex * 4; // RGBA stride
       const chOffset = base + channel;
       rgbabuf[chOffset] = (rgbabuf[chOffset] & 0xFE) | bit;
       bitIdx++;
@@ -97,7 +141,7 @@ function embedLSB_RGBA(rgbabuf, width, height, payload) {
   return { ok: true, usedBits: needBits };
 }
 
-// ---------- WAV parsing & safe audio LSB ----------
+/* -------------------- WAV parsing & safe audio LSB -------------------- */
 function parseWavHeader(buf) {
   if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
     throw new Error("Audio cover must be WAV (RIFF/WAVE).");
@@ -115,9 +159,9 @@ function parseWavHeader(buf) {
     if (id === "fmt ") {
       const audioFormat = buf.readUInt16LE(start + 0);
       const numChannels = buf.readUInt16LE(start + 2);
-      const sampleRate  = buf.readUInt32LE(start + 4);
-      const byteRate    = buf.readUInt32LE(start + 8);
-      const blockAlign  = buf.readUInt16LE(start + 12);
+      const sampleRate = buf.readUInt32LE(start + 4);
+      const byteRate = buf.readUInt32LE(start + 8);
+      const blockAlign = buf.readUInt16LE(start + 12);
       const bitsPerSample = buf.readUInt16LE(start + 14);
       fmt = { audioFormat, numChannels, sampleRate, byteRate, blockAlign, bitsPerSample };
     } else if (id === "data") {
@@ -141,7 +185,11 @@ function embedLSB_WavPCM(buf, payload, dataOffset, dataLength, bitsPerSample) {
   const capacityBits = numSamples; // one bit per sample (LSB of least-significant byte)
   const needBits = bitsNeeded(payload.length);
   if (needBits > capacityBits) {
-    return { error: `Not enough WAV capacity. Need ${Math.ceil(needBits/8/1024)}KB, have ~${Math.ceil(capacityBits/8/1024)}KB (1 bit/sample).` };
+    return {
+      error: `Not enough WAV capacity. Need ${Math.ceil(needBits / 8 / 1024)}KB, have ~${Math.ceil(
+        capacityBits / 8 / 1024
+      )}KB (1 bit/sample).`,
+    };
   }
   let bitIdx = 0;
   for (let i = 0; i < payload.length; i++) {
@@ -156,18 +204,14 @@ function embedLSB_WavPCM(buf, payload, dataOffset, dataLength, bitsPerSample) {
   return { ok: true, usedBits: needBits };
 }
 
-// ---------- ffmpeg: transcode any audio buffer -> 16-bit PCM WAV buffer ----------
+/* -------------------- ffmpeg: any audio -> 16-bit PCM WAV -------------------- */
 async function transcodeToPcmWav(inputBuf) {
   const inPath = path.join(os.tmpdir(), `${crypto.randomUUID()}.in`);
   const outPath = path.join(os.tmpdir(), `${crypto.randomUUID()}.wav`);
   await fs.writeFile(inPath, inputBuf);
   await new Promise((resolve, reject) => {
     ffmpeg(createReadStream(inPath))
-      .outputOptions([
-        "-c:a pcm_s16le",  // 16-bit PCM
-        "-ar 44100",       // sample rate (optional)
-        "-ac 2"            // channels (optional)
-      ])
+      .outputOptions(["-c:a pcm_s16le", "-ar 44100", "-ac 2"])
       .on("error", reject)
       .on("end", resolve)
       .save(outPath);
@@ -179,10 +223,13 @@ async function transcodeToPcmWav(inputBuf) {
   return outBuf;
 }
 
-// ---------- routes ----------
+/* -------------------- routes -------------------- */
 app.post(
   "/api/embed",
-  upload.fields([{ name: "cover", maxCount: 1 }, { name: "secretFile", maxCount: 1 }]),
+  upload.fields([
+    { name: "cover", maxCount: 1 },
+    { name: "secretFile", maxCount: 1 },
+  ]),
   async (req, res, next) => {
     try {
       const cover = req.files?.cover?.[0];
@@ -199,12 +246,19 @@ app.post(
 
       // ------ IMAGE cover ------
       if (cover.mimetype.startsWith("image/")) {
-        const { data, info } = await sharp(cover.buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const { data, info } = await sharp(cover.buffer)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
         const buf = Buffer.from(data);
         const r = embedLSB_RGBA(buf, info.width, info.height, payload);
         if (r.error) return res.status(400).json({ error: r.error });
 
-        const stego = await sharp(buf, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+        const stego = await sharp(buf, {
+          raw: { width: info.width, height: info.height, channels: 4 },
+        })
+          .png()
+          .toBuffer();
         res.setHeader("Content-Type", "image/png");
         res.setHeader("Content-Disposition", 'attachment; filename="stego.png"');
         return res.send(stego);
@@ -215,7 +269,7 @@ app.post(
         let wavBuf = Buffer.from(cover.buffer);
 
         // Quick check if it's already a proper WAV PCM 8/16
-        let looksWav = (wavBuf.toString("ascii", 0, 4) === "RIFF" && wavBuf.toString("ascii", 8, 12) === "WAVE");
+        let looksWav = wavBuf.toString("ascii", 0, 4) === "RIFF" && wavBuf.toString("ascii", 8, 12) === "WAVE";
         let isPcm8or16 = false;
         if (looksWav) {
           try {
@@ -241,7 +295,9 @@ app.post(
         return res.send(wavBuf);
       }
 
-      return res.status(400).json({ error: `Unsupported cover file type: ${cover.mimetype}. Use images (PNG/JPEG) or audio.` });
+      return res
+        .status(400)
+        .json({ error: `Unsupported cover file type: ${cover.mimetype}. Use images (PNG/JPEG) or audio.` });
     } catch (e) {
       console.error("Embed error:", e);
       next(e);
@@ -264,7 +320,9 @@ app.post(
         const { data, info } = await sharp(stego.buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
         reader = new (class {
           constructor(rgbabuf, width, height) {
-            this.buf = rgbabuf; this.bitIdx = 0; this.capacityBits = width * height * 3;
+            this.buf = rgbabuf;
+            this.bitIdx = 0;
+            this.capacityBits = width * height * 3;
           }
           readBytes(n) {
             const out = Buffer.alloc(n);
@@ -306,7 +364,7 @@ app.post(
               out[i] = byte;
             }
             return out;
-          }
+          },
         };
       } else {
         return res.status(400).json({ error: "Unsupported stego file type" });
@@ -323,13 +381,17 @@ app.post(
 
         // decryptIfNeededMaybe (inline to keep file self-contained)
         const ENC = Buffer.from("ENCv1");
-        if (!combined.slice(0,5).equals(ENC)) throw new Error("Invalid encrypted payload header.");
+        if (!combined.slice(0, 5).equals(ENC)) throw new Error("Invalid encrypted payload header.");
         let off = 5;
-        const salt = combined.slice(off, off+16); off += 16;
-        const iv   = combined.slice(off, off+12); off += 12;
-        const tag  = combined.slice(off, off+16); off += 16;
-        const len  = readU32BE(combined.slice(off, off+4)); off += 4;
-        const enc2 = combined.slice(off, off+len);
+        const salt = combined.slice(off, off + 16);
+        off += 16;
+        const iv = combined.slice(off, off + 12);
+        off += 12;
+        const tag = combined.slice(off, off + 16);
+        off += 16;
+        const len = readU32BE(combined.slice(off, off + 4));
+        off += 4;
+        const enc2 = combined.slice(off, off + len);
         if (!password) throw new Error("Password required to decrypt payload.");
         const key = crypto.scryptSync(password, salt, 32);
         const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
@@ -351,14 +413,17 @@ app.post(
 
       // parseContainer (inline)
       const MAGIC = Buffer.from("STEGv1");
-      if (!containerBuf.slice(0,6).equals(MAGIC)) throw new Error("No payload found (magic mismatch).");
+      if (!containerBuf.slice(0, 6).equals(MAGIC)) throw new Error("No payload found (magic mismatch).");
       let off = 6;
-      const metaLen = readU32BE(containerBuf.slice(off, off+4)); off += 4;
-      const metaBuf = containerBuf.slice(off, off+metaLen); off += metaLen;
+      const metaLen = readU32BE(containerBuf.slice(off, off + 4));
+      off += 4;
+      const metaBuf = containerBuf.slice(off, off + metaLen);
+      off += metaLen;
       const meta = JSON.parse(metaBuf.toString("utf8"));
       const items = [];
       for (const m of meta.items || []) {
-        const data = containerBuf.slice(off, off + m.len); off += m.len;
+        const data = containerBuf.slice(off, off + m.len);
+        off += m.len;
         if (m.t === "text" || m.mime === "text/plain") {
           items.push({ type: "text", name: m.name, mime: m.mime, text: data.toString("utf8") });
         } else {
@@ -373,7 +438,7 @@ app.post(
   }
 );
 
-// ---------- error handlers (after routes) ----------
+/* -------------------- error handlers (after routes) -------------------- */
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
@@ -383,12 +448,14 @@ app.use((err, req, res, next) => {
   }
   next(err);
 });
-app.use((err, req, res, next) => {
+
+app.use((err, req, res, _next) => {
   const msg = err?.message || "Unexpected server error.";
   console.error("[ERROR]", msg);
-  if (!res.headersSent) res.status(500).json({ error: `Embed failed: ${msg}` });
+  if (!res.headersSent) res.status(500).json({ error: msg });
 });
 
-// ---------- boot ----------
+/* -------------------- boot -------------------- */
 const PORT = process.env.PORT || 4000;
+// Express binds to all interfaces by default; good for Render.
 app.listen(PORT, () => console.log(`Backend running on http://localhost:${PORT}`));
