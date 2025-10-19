@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* your @layer base with @apply rules is fine */
+
+@layer base {
+  html { @apply bg-black text-white font-sans; }
+  body, #root { @apply min-h-screen bg-black text-white; }
+  ::selection { background: white; color: black; }
+  input, textarea, select {
+    @apply bg-transparent border border-gray-700 rounded-md p-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-white;
+  }
+  button { @apply rounded-md px-4 py-2 font-medium transition; }
+  button.primary { @apply bg-white text-black hover:bg-gray-200; }
+  button.secondary { @apply border border-white text-white hover:bg-white hover:text-black; }
+}
