@@ -1,16 +1,66 @@
-# React + Vite
+# 🕵️‍♂️ STEGNOGRAPHY TOOL
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A powerful full-stack application that allows users to **embed, extract, and analyze** hidden data inside multimedia files such as **images** and **audio**.  
+Built with **React (frontend)** and **Node.js + Express (backend)** for a smooth, secure, and modern experience.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Features
 
-## React Compiler
+- 🔐 **Embed Mode:** Hide secret messages or files inside images/audio securely.  
+- 🧩 **Extract Mode:** Retrieve hidden data from previously encoded files.  
+- 🧠 **Analyze Mode:** Detect whether a file may contain steganographic content.  
+- ⚡ **AES-256 Encryption:** Optional password-based encryption for maximum data protection.  
+- 🧹 **Secure File Handling:** No permanent file storage — all uploads are processed in memory.  
+- 🖼️ **Supports multiple formats:** PNG, JPEG, WAV, OGG, MP3, FLAC, and ZIP.  
+- 💻 **Cross-platform:** Works locally or when deployed on cloud services like Render, Vercel, or Railway.  
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## 🛠️ Tech Stack
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+**Frontend:** React + Vite + Tailwind CSS  
+**Backend:** Node.js + Express + Sharp + Crypto  
+**File Uploads:** Multer (in-memory storage)  
+**Security:** AES-256 encryption with optional passwords  
+
+---
+
+## ⚙️ Installation & Setup
+
+### 1️⃣ Clone the Repository
+
+```bash
+git clone https://github.com/surojuhomsaisantosh/STEGNOGRAPHY.git
+cd STEGNOGRAPHY
+2️⃣ Backend Setup
+bash
+Copy code
+cd backend
+npm install
+node server.js
+3️⃣ Frontend Setup
+bash
+Copy code
+cd ../frontend
+npm install
+npm run dev
+🧪 Example Use Cases
+Hide confidential messages or files inside everyday images.
+
+Embed secret audio clips for secure transmission.
+
+Analyze files to detect possible data manipulation.
+
+Use as a cybersecurity teaching tool for data hiding and steganalysis concepts.
+
+🔒 Security Notes
+Uses AES-256 encryption when password protection is enabled.
+
+Sanitizes user inputs to prevent malicious uploads.
+
+Does not store files permanently on the server.
+
+🧑‍💻 Author
+Suroju Hom Sai Santosh
+GitHub: @surojuhomsaisantosh
